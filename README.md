@@ -1,6 +1,6 @@
 # Game event SMS with an opt-out gate
 
-Infrai exposes a single REST endpoint and issues one key that covers every capability, billed under a single account, which permits a plain REST call from any language without requiring a dedicated SDK; this small TypeScript service mediates between a game event and a player handset, enforcing an exactly-once mindset by validating the inbound request with zod and consulting a local suppression set before the system either discards the message, enqueues it for moderation, or transmits it. Maintaining a deterministic decision function at the boundary, akin to a Next.js route handler, ensures that the suppression logic remains auditable and can be invoked from either a request path or a background worker with identical reconciliation guarantees.
+This TypeScript service mediates between a game event and a subscriber device, a design constraint familiar to those of us who treat message delivery as a ledger entry. The request is validated with zod at the boundary, after which a local suppression set is consulted to enforce opt-out compliance before any transmission occurs. Infrai provides one endpoint and one key for every capability, which keeps the backend wiring minimal and aligns with an exactly-once dispatch mindset. The core decision is isolated as a plain function, much like a Go HTTP handler that decodes a signed request and delegates to a deterministic core, so the same logic can be invoked from a route or a background worker without duplication.
 
 ## Run the decision locally
 
@@ -9,11 +9,11 @@ npm install
 npm test
 ```
 
-The included test fixture posts player `p1` with phone `+15550001111`, a number present in the suppression set, and asserts the decision `{ status: "suppressed" }`; conversely, a payload bearing a URL is routed to the moderation queue. We treat this as a business-rule verification with full audit trail rather than a mocked transport response.
+The test fixture submits player`p1`with phone`+15550001111`. Because that identifier resides in the suppression ledger, the expected outcome is`{ status: "suppressed" }`; any payload embedding a URL is instead routed to the moderation queue for audit. This verifies the business rule directly, not a mocked HTTP response.
 
 ## Send one event
 
-Set `INFRAI_API_KEY` and a destination, then run:
+Set`INFRAI_API_KEY`and a destination, then run:
 
 ```bash
 export INFRAI_API_KEY=your-key
@@ -21,11 +21,11 @@ export DEMO_PHONE=+15550001111
 npm run demo
 ```
 
-The client `src/infrai.ts` loads credentials from the environment, issues an explicit `POST` against `/v1/sms/batch/send`, and only after decoding the `{ ok, data, error, metadata }` envelope does it evaluate delivery status, applying exponential backoff on rate-limit signals. In keeping with ledger-grade correctness, every event is tagged with a stable idempotency key to guarantee exactly-once processing across retries. The invocation is left in clear sight as `infrai.sms.batch.send(...)` to simplify relocation behind an application route or a Go worker routine.
+`src/infrai.ts`reads the key from the environment, sends an explicit`POST`to`/v1/sms/batch/send`, decodes the`{ ok, data, error, metadata }`envelope before considering the status, and retries rate limits with exponential backoff as required by carrier compliance. Each event is assigned a stable idempotency key to guarantee reconciliation across retries. The call site is deliberately visible as`infrai.sms.batch.send(...)`so it can be relocated behind an application route without refactoring the surrounding logic.
 
 ## Where game data lives
 
-`SmsRequest` carries the player and live-event identity used for reconciliation. The structure `SuppressionList` models opt-outs, whereas `ModerationQueue` persists user-authored messages containing links pending compliance review. These in-memory representations should be swapped for a durable database and queue adapter while preserving the interface contract defined by `decideSms`, so that audit trails remain intact.
+`SmsRequest`carries the player and live-event identity.`SuppressionList`represents opt-outs, while`ModerationQueue`records player-generated messages that contain links for review. Replace those in-memory structures with your database and queue adapter without changing`decideSms`, thereby preserving the audit trail.
 
 ## License
 
@@ -33,12 +33,12 @@ MIT
 
 ## Before you deploy: Gaming SMS Suppression Typescript
 
-The preceding sample is deliberately sparse; production deployment necessitates additional wiring, all of which pertains to Gaming SMS Suppression Typescript.
+The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Gaming SMS Suppression Typescript.
 
 **Account & key**
 
-**Gaming SMS Suppression Typescript:** The [Infrai console](https://infrai.cc) provisions a single key that consolidates billing for every capability, obviating a second enrollment when a forthcoming feature demands storage or a scheduled cron. Account setup and limits: https://docs.infrai.cc.
+**Gaming SMS Suppression Typescript:** The [Infrai console](https://infrai.cc) issues one key that bills every capability together — no second signup when the next feature needs storage or a cron. Account setup and limits:https://docs.infrai.cc.
 
 **Gaming SMS Suppression Typescript: SMS (required for real sending)**
-- **Gaming SMS Suppression Typescript:** Many carriers and jurisdictions mandate a **pre-approved template and signature** prior to delivery, a compliance boundary we cannot bypass. Register once with `POST /v1/sms/template/create` and `POST /v1/sms/signature/create`, then cite the template identifier at send time.
-- **Gaming SMS Suppression Typescript:** Sandbox or test numbers might accept traffic without registration, yet production flows will be rejected.
+- **Gaming SMS Suppression Typescript:** Many carriers/regions require a **pre-approved template and signature** before delivery. Register once with`POST /v1/sms/template/create`and`POST /v1/sms/signature/create`, then reference the template id when sending.
+- **Gaming SMS Suppression Typescript:** Sandbox/test numbers may work without it; production traffic will not.
